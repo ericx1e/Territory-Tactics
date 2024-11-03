@@ -5,10 +5,10 @@ const server = app.listen(process.env.PORT || 3000, () => {
     console.log("Server is running on port " + (process.env.PORT || 3000));
 });
 
-const gridRows = 100
-const gridCols = 100
+const gridRows = 20
+const gridCols = 20
 
-app.use(cors({ origin: 'http://localhost:3001' }));
+app.use(cors({ origin: true }));
 
 console.log("Server is running");
 
@@ -16,7 +16,7 @@ app.use(express.static('public'));
 
 const io = require('socket.io')(server, {
     cors: {
-        origin: 'http://localhost:3001',
+        origin: true,
         methods: ['GET', 'POST']
     }
 });
@@ -84,12 +84,26 @@ io.sockets.on('connection', (socket) => {
                 for (let c = 0; c < gridCols; c++) {
                     row.push('empty')
                 }
+                grid.push(row)
             }
 
             roomGridData.set(room, grid)
 
 
             io.to(room).emit('start game', grid)
+        }
+    });
+
+    socket.on("update cell", ({ room, row, col, type }) => {
+        // Ensure the room exists and the coordinates are within bounds
+        if (roomGridData.has(room) && row >= 0 && row < gridRows && col >= 0 && col < gridCols) {
+            const grid = roomGridData.get(room);
+
+            // Update the cell in the server's grid data for this room
+            grid[row][col] = type;
+
+            // Broadcast the update to all clients in the specified room
+            io.to(room).emit("cell updated", { row, col, type });
         }
     });
 

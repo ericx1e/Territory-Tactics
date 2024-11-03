@@ -9,6 +9,23 @@ let message;
 let messageStartFrame;
 let screen = "home"
 const backgroundColor = '#8fd3f5'
+let grid = [[]]
+let gridRows = undefined
+let gridCols = undefined
+const cellSize = 20;
+
+let panX = 0;
+let panY = 0;
+let panVelocityX = 0;
+let panVelocityY = 0;
+let zoomLevel = 1;
+let targetZoomLevel = 1;
+const zoomSensitivity = 0.002; // Adjust for smoother zooming
+const panDamping = 0.9; // For smoother stopping
+const panAcceleration = 15; // For pan speed
+
+let startX, startY; // Starting position of mouse when drag starts
+let isDragging = false;
 
 let vtFont
 
@@ -19,6 +36,8 @@ function preload() {
 function setup() {
     canvas = createCanvas(window.innerWidth, window.innerHeight)
     canvas.position(0, 0)
+    canvas.elt.addEventListener('contextmenu', (e) => e.preventDefault());
+    frameRate(60)
 }
 
 function windowResized() {
@@ -151,9 +170,43 @@ function drawLobbyPage() {
 function drawGamePage() {
     //background(backgroundColor)
     drawBackground()
-    textOptions(width / 10)
-    text("Game Page", width / 2, height / 4)
+
+    panX += panVelocityX;
+    panY += panVelocityY;
+
+    zoomLevel = lerp(zoomLevel, targetZoomLevel, 0.1); // Adjust for smoother easing
+
+    push()
+    translate(width / 2, height / 2);
+    scale(zoomLevel);
+    drawGrid();
+
+    panVelocityX *= panDamping;
+    panVelocityY *= panDamping;
+    pop()
 }
+
+function drawGrid() {
+    push()
+    translate(panX - (gridRows / 2 - 0.5) * cellSize, panY - (gridCols / 2 - 0.5) * cellSize)
+    for (let r = 0; r < gridRows; r++) {
+        for (let c = 0; c < gridCols; c++) {
+            switch (grid[r][c]) {
+                case 'empty':
+                    fill(255);
+                    break
+                case 'tree':
+                    fill(100, 255, 100);
+                    break
+            }
+            stroke(0);
+            strokeWeight(1);
+            rect(c * cellSize, r * cellSize, cellSize, cellSize);
+        }
+    }
+    pop()
+}
+
 function isHost() {
     return roomInfo.players[0] == playerInfo.username
 }
@@ -210,7 +263,21 @@ function showMessage() {
     pop();
 }
 
+const panSpeed = 10;
+
 function keyPressed() {
+    /*
+    if (keyCode === LEFT_ARROW) {
+        panVelocityX += panAcceleration;
+    } else if (keyCode === RIGHT_ARROW) {
+        panVelocityX -= panAcceleration;
+    } else if (keyCode === UP_ARROW) {
+        panVelocityY += panAcceleration;
+    } else if (keyCode === DOWN_ARROW) {
+        panVelocityY -= panAcceleration;
+    }
+    */
+
     if (isInputting) {
         if (textInput.length < maxStringLength && key.length == 1) {
             textInput += key;
@@ -234,10 +301,67 @@ function keyPressed() {
     }
 }
 
+function mouseWheel(event) {
+    // Set target zoom level for smooth zooming
+    targetZoomLevel -= event.delta * zoomSensitivity;
+    targetZoomLevel = constrain(targetZoomLevel, 0.5, 3); // Adjust min and max zoom
+    return false; // Prevent page scrolling
+}
+function mousePressed() {
+    // Panning
+    if (mouseButton === RIGHT) {
+        startMouseX = mouseX;
+        startMouseY = mouseY;
+        startPanX = panX;
+        startPanY = panY;
+        isDragging = true;
+    } else if (mouseButton === LEFT) {
+        const adjustedMouseX = (mouseX - panX - width / 2) / zoomLevel + (gridCols / 2 - 0.5) * cellSize;
+        const adjustedMouseY = (mouseY - panY - height / 2) / zoomLevel + (gridRows / 2 - 0.5) * cellSize;
+
+        // Calculate row and column based on adjusted coordinates
+        const col = Math.floor(adjustedMouseX / cellSize);
+        const row = Math.floor(adjustedMouseY / cellSize);
+
+        if (row >= 0 && row < gridRows && col >= 0 && col < gridCols) {
+            updateCell(row, col, 'tree');
+        }
+    }
+}
+
+function mouseDragged() {
+    if (isDragging) {
+        // Adjust pan based on mouse movement and current zoom level
+        panX = startPanX + (mouseX - startMouseX) / zoomLevel;
+        panY = startPanY + (mouseY - startMouseY) / zoomLevel;
+    }
+}
+
+function mouseReleased() {
+    // End dragging
+    isDragging = false;
+}
+
 socket.on('start game', (initGrid) => {
     screen = "game"
     index = roomInfo.players.indexOf(playerInfo.username)
     // playerInfo.index = roomInfo.players.indexOf(playerInfo.username)
+    grid = initGrid
+    gridRows = grid.length
+    gridCols = grid[0].length
+});
+
+function updateCell(row, col, type) {
+    // Update local grid
+    grid[row][col] = type;
+    // Send update to server
+    socket.emit("update cell", { room: playerInfo.room, row, col, type: type });
+}
+
+socket.on("cell updated", ({ row, col, type }) => {
+    // Update local grid based on server broadcast
+    grid[row][col] = type;
+    console.log(row, col, type)
 });
 
 socket.on('end screen', (data) => {
